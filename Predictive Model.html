@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style type="text/css">
+.inline {
+  background-color: #f7f7f7;
+  border:solid 1px #B0B0B0;
+}
+.error {
+	font-weight: bold;
+	color: #FF0000;
+}
+.warning {
+	font-weight: bold;
+}
+.message {
+	font-style: italic;
+}
+.source, .output, .warning, .error, .message {
+	padding: 0 1em;
+  border:solid 1px #F7F7F7;
+}
+.source {
+  background-color: #f5f5f5;
+}
+.left {
+  text-align: left;
+}
+.right {
+  text-align: right;
+}
+.center {
+  text-align: center;
+}
+.hl.num {
+  color: #AF0F91;
+}
+.hl.str {
+  color: #317ECC;
+}
+.hl.com {
+  color: #AD95AF;
+  font-style: italic;
+}
+.hl.opt {
+  color: #000000;
+}
+.hl.std {
+  color: #585858;
+}
+.hl.kwa {
+  color: #295F94;
+  font-weight: bold;
+}
+.hl.kwb {
+  color: #B05A65;
+}
+.hl.kwc {
+  color: #55aa55;
+}
+.hl.kwd {
+  color: #BC5A65;
+  font-weight: bold;
+}
+</style>
+    <title>Predictive Model</title>
+</head>
+<body>
+    <h1>Weight Lifting Exercises Dataset</h1>
+    
+    <p>Loading necessary libraries:</p>
+    
+    <pre><code>
+    ```{r,message=FALSE, warning=FALSE}
+    library(dplyr)
+    library(caret)
+    library(corrplot)
+    library(xgboost)
+    library(Matrix)
+    library(e1071)
+    library(kernlab)
+    ```
+    </code></pre>
+    
+    <h2>Data Preprocessing and Feature Selection</h2>
+    <pre><code>
+    ```{r setup, message=FALSE, warning=FALSE}
+    test <- read.csv("pml-testing.csv", na.strings = c("NA","",'#DIV/0!'))
+    train <- read.csv("pml-training.csv", na.strings = c("NA","",'#DIV/0!'))
+    test <- test[, colSums(is.na(test)) == 0]
+    train <- train[, colSums(is.na(train)) == 0]
+    test <- na.omit(test)
+    train <- na.omit(train)
+    train$classe <- factor(train$classe)
+    ```
+    </code></pre>
+    
+    <h2>Split Train Data</h2>
+    <pre><code>
+    ```{r,message=FALSE, warning=FALSE}
+    set.seed(123)
+    trainIndex <- createDataPartition(train$classe, p = 0.7, list = FALSE)
+    train_data <- train[trainIndex, ]
+    test_data <- train[-trainIndex, ]
+    ```
+    </code></pre>
+    
+    <h2>Random Forest Model</h2>
+    <pre><code>
+    ```{r,message=FALSE, warning=FALSE}
+    tune_grid <- expand.grid(mtry = c(2, 5, 10, 15, 20))
+    control <- trainControl(method = "cv", number = 5)
+    model_rf <- train(classe ~ ., data = train_data, method = "rf", trControl = control, tuneGrid = tune_grid, ntree = 100)
+    confusionMatrix(predict(model_rf, test_data), test_data$classe)
+    ```
+    </code></pre>
+    
+    <h2>XGBoost Model</h2>
+    <pre><code>
+    ```{r,message=FALSE, warning=FALSE}
+    param <- list(
+        objective = "multi:softmax",
+        booster = "gbtree",
+        max_depth = 10,
+        eta = 0.3,
+        num_class = 5,
+        eval_metric = "mlogloss"
+    )
+    xgb_model <- xgb.train(params = param, data = dtrain, nrounds = 500)
+    predict(xgb_model, dtest)
+    ```
+    </code></pre>
+    
+    <h2>SVM Model</h2>
+    <pre><code>
+    ```{r,message=FALSE, warning=FALSE}
+    svm_cv_model <- train(
+        classe ~ .,
+        data = train_data,
+        method = "svmRadial",
+        trControl = trainControl(method = "cv", number = 5),
+        tuneGrid = expand.grid(sigma = 0.1, C = 0.5)
+    )
+    predict(svm_cv_model, test_data)
+    ```
+    </code></pre>
+</body>
+</html>
