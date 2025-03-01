@@ -1,6 +1,6 @@
 ---
 title: "Predictive Model"
-author: "Radisa Alpinah"
+author: "Radisa"
 date: "2025-03-01"
 output:
   pdf_document: default
