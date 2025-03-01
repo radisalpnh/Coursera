@@ -1,11 +1,12 @@
 ---
 title: "Predictive Model"
-author: "Radisa"
-date: "2/20/2025"
+author: "Radisa Alpinah"
+date: "2025-03-01"
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 ---
+
 # Weight Lifting Exercises Dataset 
 
 ```{r,message=FALSE, warning=FALSE}
@@ -16,34 +17,62 @@ library(xgboost)
 library(Matrix)
 library(e1071)
 library(kernlab)
+
 ```
 
-# Data Preprocessing and Feature Selection
+# Data Preprocessing and feature selection
+We select necessary features for predictive modeling and remove columns with missing values, non-predictive columns, columns with near zero variance, and highly correlated features. We also standardize the data.
+All selected features are related to the accelerometers and gyroscopes of the devices worn by the participants. 
+
+- **Gyroscope (`gyros_*`)**: Measures angular velocity (rotation).
+- **Accelerometer (`accel_*`)**: Measures linear acceleration.
+- **Magnetometer (`magnet_*`)**: Measures orientation relative to Earth's magnetic field.
+- **Euler Angles (`roll_*`, `pitch_*`, `yaw_*`)**: Describes rotational movements.
+- **Total Acceleration (`total_accel_*`)**: Combined acceleration magnitude.
 
 ```{r setup, message=FALSE, warning=FALSE}
+# read the data, replace missing values with NA, remove columns with missing values and drop non-predictive columns
+
 test <- read.csv("pml-testing.csv", na.strings = c("NA","",'#DIV/0!'))
 train <- read.csv("pml-training.csv", na.strings = c("NA","",'#DIV/0!'))
-test <- test[, colSums(is.na(test)) == 0]
+test <- test[,colSums(is.na(test)) == 0]
 test <- na.omit(test)
 train <- train[, colSums(is.na(train)) == 0]
 train <- na.omit(train)
 test <- test[, !colnames(test) %in% c("X", "problem_id", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")]
 train <- train[, !colnames(train) %in% c("X", "problem_id", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")]
+
+# check the dimensions and names of the datasets
+# dim(train)
+# dim(test)
+# names(train)
+# names(test)
+
+# data encode (factorize) the classes
 train$classe <- factor(train$classe)
 
+# data exploration
+table(train$classe)
+# summary(train)
+
+# feature selection
+# remove columns with near zero variance and highly correlated features
+# nzv_features <- nearZeroVar(train[, sapply(train, is.numeric)]) # no near zero variance features
 cor_matrix <- cor(train[, sapply(train, is.numeric)])
 correlated_features <- findCorrelation(cor_matrix, cutoff = 0.8)
 train <- train[, -correlated_features]
 test <- test[, -correlated_features]
 
-preProc_tr <- preProcess(train[,-41], method = c("center", "scale"))
+# standardize the data
+preProc_tr<- preProcess(train[,-41], method = c("center", "scale"))
 train_scaled <- predict(preProc_tr, train[,-41])
 train_scaled$classe <- train$classe
 preProc_te <- preProcess(test, method = c("center", "scale"))
 test_scaled <- predict(preProc_te, test)
-```
 
-# Split Train Data
+```
+# Slice the train data into training and testing datasets
+The scaled train dataset is split into 70% training and 30% testing datasets.
 
 ```{r,message=FALSE, warning=FALSE}
 set.seed(123)
@@ -53,42 +82,59 @@ test_data <- train_scaled[-trainIndex,]
 ```
 
 # Random Forest Model
+We train a random forest model with 5-fold cross validation and 100 trees (to save time). The model is evaluated using the confusion matrix.
 
 ```{r,message=FALSE, warning=FALSE}
-tune_grid <- expand.grid(mtry = c(2, 5, 10, 15, 20))
+# train the model and tune the hyperparameters using built-in cross-validation
+tune_grid <- expand.grid(
+  mtry = c(2, 5, 10,15,20)) # number of variables randomly sampled as candidates at each split
 control <- trainControl(method = "cv", number = 5)
-model_rf <- train(classe ~ ., data = train_data, method = "rf", trControl = control, tuneGrid = tune_grid, ntree = 100)
+# Fit the model
+model_rf <- train(classe ~ ., data = train_data, method = "rf", trControl = control, tuneGrid = tune_grid,ntree = 100)
+model_rf
+# model evaluation for the test dataset
 confusionMatrix(predict(model_rf, test_data), test_data$classe)
+# Predict the classe for the 20 sample size test_scaled dataset
 predict(model_rf, test_scaled)
 ```
 
 # XGBoost Model
+The XGBoost model is configured for multi-class classification with `"multi:softmax"` as the objective function, a maximum tree depth of 10, a learning rate (`eta`) of 0.3, and early stopping after 5 rounds if `mlogloss` does not improve. A 5-fold cross-validation (`xgb.cv`) determines the optimal number of boosting rounds (`best_iter`), enhancing model efficiency while preventing overfitting. The final model is trained using `xgb.train()` with the best iteration count. Predictions on the test dataset are evaluated with `confusionMatrix()`.
 
 ```{r,message=FALSE, warning=FALSE}
+# prepare Matrix for xgboost
+# train data
 train_data1 <- data.matrix(train_data[,-41])
-train_data1 <- Matrix(train_data1, sparse = TRUE)
-train_y <- as.numeric(train_data$classe) - 1
+train_data1 <- Matrix(train_data1, sparse = TRUE) # convert to sparse matrix
+train_y <- as.numeric(train_data$classe)-1 # convert classe to numeric-1, as xgboost requires labels to start from 0
 traindata <- list(data = train_data1, label = train_y)
 dtrain <- xgb.DMatrix(data = traindata$data, label = traindata$label)
-
+# test data
 test_data1 <- data.matrix(test_data[,-41])
-test_data1 <- Matrix(test_data1, sparse = TRUE)
-test_y <- as.numeric(test_data$classe) - 1
+test_data1 <- Matrix(test_data1, sparse = TRUE) # convert to sparse matrix
+test_y <- as.numeric(test_data$classe)-1 # convert classe to numeric-1, as xgboost requires labels to start from 0
 testdata <- list(data = test_data1, label = test_y)
 dtest <- xgb.DMatrix(data = testdata$data, label = testdata$label)
-
+# test scaled data
 test_scaled1 <- data.matrix(test_scaled)
-test_scaled1 <- Matrix(test_scaled1, sparse = TRUE)
+test_scaled1 <- Matrix(test_scaled1, sparse = TRUE) 
 dtest_scaled <- xgb.DMatrix(data = test_scaled1)
+
+
+# set the parameters and build the model
 
 param <- list(
   objective = "multi:softmax",
   booster = "gbtree",
   max_depth = 10,
   eta = 0.3,
-  num_class = 5,
-  early_stopping_rounds = 5,
-  eval_metric = "mlogloss"
+  nrounds = 500,  # Number of boosting iterations
+  num_class = 5,  # Number of classes for multi-class classification
+  verbose = T, # Report performance
+  early_stopping_rounds = 5,  # Stop early if no improvement in 10 rounds
+  eval_metric = "mlogloss",
+  nfolds = 5,
+  maximize = FALSE
 )
 
 cv_results <- xgb.cv(
@@ -96,26 +142,49 @@ cv_results <- xgb.cv(
   data = dtrain,
   nfold = 5,
   nrounds = 500,
-  early_stopping_rounds = 5
+  verbose = F,
+  early_stopping_rounds = 5,
+  maximize = FALSE
 )
 
+# Select the best iteration
 best_iter <- cv_results$best_iteration
-xgb_model <- xgb.train(params = param, data = dtrain, nrounds = best_iter)
+# Train the model
+xgb_model <- xgb.train(
+  params = param,
+  data = dtrain,
+  nrounds = best_iter
+)
+# model evaluation for the test dataset
 pred <- predict(xgb_model, dtest)
-confusionMatrix(as.factor(pred), as.factor(test_y))
+xgb.cf <- confusionMatrix(as.factor(pred), as.factor(test_y))
+xgb.cf
+
+# predict on the test dataset
+pred <-predict(xgb_model, dtest_scaled)
+# transform the predictions to the original classe labels
 class_labels <- c("A", "B", "C", "D", "E")
 class_labels[pred + 1]
 ```
 
 # SVM Model
+The Support Vector Machine (SVM) model is trained using the `svm()` function with a radial basis function (RBF) kernel. The model is evaluated using 5 fold cross-validation.
 
 ```{r,message=FALSE, warning=FALSE}
+
+# Define 5-fold cross-validation settings
 cv_control <- trainControl(method = "cv", number = 5)
+
+# Train SVM model with cross-validation
 svm_cv_model <- train(
   classe ~ ., 
   data = train_data, 
   method = "svmRadial", 
   trControl = cv_control,
-  tuneGrid = expand.grid(sigma = 0.1, C = 0.5)
+  tuneGrid = expand.grid(sigma = 0.1, C = 0.5)  # Equivalent to gamma and cost
 )
+
+svm_cv_model
+# Predict on the test dataset
 predict(svm_cv_model, test_scaled)
+```
